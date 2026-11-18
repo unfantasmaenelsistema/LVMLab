@@ -1,9 +1,12 @@
 <div align="center">
-  <img src="./public/assets/aistudio/icono_81a3db5b.png" alt="Logo de GhostAcademy — Un Fantasma en el Sistema" width="96" />
+  <img src="./public/assets/logo.png" alt="Logo de GhostAcademy — Un Fantasma en el Sistema" width="96" />
   <h1>LVMLab — Simulador Interactivo de Linux LVM2</h1>
   <p>
     <strong>Laboratorio visual y consola Linux Zero-Backend para dominar Logical Volume Manager (LVM2)</strong><br />
     Proyecto educativo de <a href="https://www.unfantasmaenelsistema.com/">GhostAcademy (unfantasmaenelsistema)</a>
+  </p>
+  <p>
+    <a href="https://unfantasmaenelsistema.github.io/LVMLab/"><strong>▶ Abrir LVMLab en el navegador</strong></a>
   </p>
 
   <p>
@@ -119,18 +122,20 @@
 ```text
 .
 ├── .github/workflows/
-│   └── deploy-pages.yml         # Pipeline automático de despliegue en GitHub Pages
+│   └── deploy.yml               # Compila con Bun + Vite y publica en GitHub Pages
 ├── docs/screenshots/            # Capturas reales de la aplicación
 │   ├── 01-diagrama-multicapa.png
 │   ├── 02-mapa-extents-pe.png
 │   ├── 03-ctf-snapshot-cow.png
 │   ├── 04-inspector-metadatos.png
 │   └── 05-chuleta-lvm2.png
-├── public/assets/aistudio/
-│   └── icono_81a3db5b.png       # Logotipo de GhostAcademy (favicon y cabecera)
-├── index.html                   # Simulador autónomo completo (HTML5 + Tailwind CDN + Lucide + JS)
-├── package.json                 # Scripts de desarrollo y empaquetado estático Vite
-├── vite.config.ts               # Configurado con base: './' para rutas relativas en GitHub Pages
+├── public/assets/
+│   └── logo.png                 # Logotipo de GhostAcademy (favicon y cabecera)
+├── src/styles.css               # Entrada de Tailwind (se compila en el build)
+├── index.html                   # Simulador completo (HTML5 + JS; iconos Lucide con versión fija)
+├── tailwind.config.js           # Tailwind 3 con las fuentes del proyecto
+├── package.json                 # Scripts de desarrollo y build (Vite + Tailwind)
+├── vite.config.js               # base: './' para rutas relativas en GitHub Pages
 └── LICENSE                      # Licencia MIT
 ```
 
@@ -138,28 +143,36 @@
 
 ## Ejecución Local y Despliegue en GitHub Pages
 
-### Opción A: Uso Directo (Sin Compilación)
-El núcleo de **LVMLab** reside en un único archivo autónomo (`/index.html`), por lo que puede servirse con cualquier servidor estático:
+### Opción A: Usarlo en el navegador
+Sin instalar nada: **https://unfantasmaenelsistema.github.io/LVMLab/**
+
+### Opción B: Desarrollo y build con Vite
+Los estilos de Tailwind se compilan en el build, así que para trabajar en local hace falta instalar las dependencias (con [Bun](https://bun.sh/) o con npm):
 
 ```bash
-python3 -m http.server 8080
-```
-
-### Opción B: Desarrollo y Build con Vite
-```bash
-npm install
-npm run dev      # Servidor local en http://localhost:3000
-npm run build    # Genera el paquete estático listo para producción en ./dist
-npm run preview  # Previsualización del bundle generado
+bun install
+bun run dev      # Servidor local en http://localhost:3000
+bun run build    # Genera el paquete estático listo para producción en ./dist
+bun run preview  # Previsualización del bundle generado
 ```
 
 ### Opción C: Despliegue Automático en GitHub Pages
-El repositorio incluye el workflow [`.github/workflows/deploy-pages.yml`](./.github/workflows/deploy-pages.yml) y `base: './'` en [`vite.config.ts`](./vite.config.ts) para funcionar bajo cualquier subruta (`https://<usuario>.github.io/<repositorio>/`):
+El repositorio incluye el workflow [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) y `base: './'` en [`vite.config.js`](./vite.config.js) para funcionar bajo cualquier subruta (`https://<usuario>.github.io/<repositorio>/`):
 
 1. Sube este repositorio a GitHub en la rama `main`.
 2. Ve a **Settings → Pages** en tu repositorio de GitHub.
 3. En **Source**, selecciona **GitHub Actions**.
 4. Cada `push` a `main` compilará `./dist` y publicará automáticamente **LVMLab**.
+
+---
+
+## Cambios de esta versión
+
+- **Las misiones 3 y 4 ya no se superan destruyendo los datos.** Borrar `lv_erp` (o `lv_web` y `lv_correo`) y crearlos vacíos con el mismo nombre daba la bandera sin snapshot ni `pvmove`. Ahora el laboratorio comprueba que el volumen es el original (mismo UUID) y, si no, explica que los datos se han perdido.
+- **El sandbox recuerda tu trabajo de verdad.** Al arrancar, la app guardaba el escenario por defecto encima de la sesión anterior antes de leerla, así que nada sobrevivía a una recarga. Ahora se restaura y la terminal lo indica; «Reiniciar» vuelve al escenario inicial.
+- **Importar un JSON ya no rompe el laboratorio.** Antes, un fichero con un disco `null` dejaba el estado a medias. Ahora cada disco, PV, VG, LV, segmento y archivo de `/etc/lvm/archive` se valida campo a campo; lo que no es coherente se descarta y se avisa de cuántos elementos se quitaron. El progreso del CTF guardado tampoco admite datos ajenos.
+- **Móvil:** la barra de métricas y las pestañas del diagrama se salían de la pantalla (501 px en un móvil de 390). Ahora se ajustan.
+- **Build para producción:** Tailwind 3 compilado (antes, el CDN de desarrollo, que avisaba en consola de que no debe usarse en producción) y Lucide con versión fija en lugar de `@latest`. Comparado píxel a píxel, el aspecto en escritorio es idéntico. El workflow usa Bun y ya no falla por `npm ci` sin lockfile. Fuera los restos de AI Studio (React sin uso, Gemini, Express, `metadata.json`).
 
 ---
 

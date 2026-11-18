@@ -15,7 +15,7 @@
     />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="icon" type="image/png" href="./assets/aistudio/icono_81a3db5b.png" />
+    <link rel="icon" type="image/png" href="./assets/logo.png" />
 
     <!-- Tipografía técnica: Plus Jakarta Sans + JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -25,24 +25,8 @@
       rel="stylesheet"
     />
 
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-              mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
-            },
-          },
-        },
-      };
-    </script>
-
-    <!-- Lucide Icons CDN -->
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <!-- Iconos Lucide (versión fija: @latest podía cambiar o romper iconos sin aviso) -->
+    <script src="https://unpkg.com/lucide@1.75.0/dist/umd/lucide.min.js"></script>
 
     <style>
       :root {
@@ -140,6 +124,9 @@
         z-index: 20;
       }
     </style>
+
+    <!-- Tailwind 3 compilado por Vite (antes, CDN de desarrollo) -->
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
     <!-- CABECERA GLOBAL -->
@@ -156,7 +143,7 @@
           >
             <div class="w-10 h-10 rounded-lg bg-slate-100 border border-slate-700 p-1 flex items-center justify-center shrink-0 overflow-hidden transition-transform duration-150 group-hover:scale-105">
               <img
-                src="./assets/aistudio/icono_81a3db5b.png"
+                src="./assets/logo.png"
                 alt="Logo de GhostAcademy — Un Fantasma en el Sistema"
                 referrerpolicy="no-referrer"
                 class="w-full h-full object-contain"
@@ -335,13 +322,13 @@
       >
         <!-- Barra de Pestañas + Acciones rápidas LVM -->
         <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div class="inline-flex items-center p-1 bg-slate-950 border border-slate-800 rounded-lg" role="tablist">
+          <div class="inline-flex max-w-full items-center p-1 bg-slate-950 border border-slate-800 rounded-lg" role="tablist">
             <button
               id="tab-btn-diagram"
               type="button"
               role="tab"
               aria-selected="true"
-              class="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 bg-slate-800 text-slate-50"
+              class="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors sm:whitespace-nowrap shrink sm:shrink-0 bg-slate-800 text-slate-50"
             >
               Diagrama de Abstracción LVM
             </button>
@@ -350,7 +337,7 @@
               type="button"
               role="tab"
               aria-selected="false"
-              class="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 text-slate-400 hover:text-slate-200"
+              class="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors sm:whitespace-nowrap shrink sm:shrink-0 text-slate-400 hover:text-slate-200"
             >
               Mapa Físico de Extents (PE Grid)
             </button>
@@ -702,6 +689,176 @@
         }
       }
 
+      /* ============================================================================
+         SANEADO DEL ESTADO IMPORTADO (JSON del usuario o localStorage)
+         Reconstruye cada objeto campo a campo con tipos y rangos válidos: un fichero
+         manipulado o a medias no puede dejar la página en blanco ni inyectar HTML.
+         ============================================================================ */
+      const RE_NOMBRE_LVM = /^[A-Za-z0-9_.+-]{1,64}$/;
+      const RE_DEVICE = /^\/dev\/[A-Za-z0-9_.-]{1,40}$/;
+      const RE_MOUNT = /^\/[A-Za-z0-9_.\/-]{0,120}$/;
+      const RE_FICHERO_VG = /^[A-Za-z0-9_.+-]{1,96}\.vg$/;
+      const PE_SIZES_VALIDOS = [1, 2, 4, 8, 16, 32, 64, 128];
+
+      function sanoTexto(v, max = 80, def = '') {
+        return typeof v === 'string' ? v.replace(/[<>`]/g, '').slice(0, max) : def;
+      }
+      function sanoEntero(v, min, max, def) {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : def;
+      }
+      function sanoNumero(v, min, max, def) {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+      }
+      const esObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+      function sanearVg(v) {
+        if (!esObjeto(v) || !RE_NOMBRE_LVM.test(v.name)) return null;
+        return {
+          name: v.name,
+          uuid: sanoTexto(v.uuid, 48, generateLvmUuid()),
+          peSizeMiB: PE_SIZES_VALIDOS.includes(Number(v.peSizeMiB)) ? Number(v.peSizeMiB) : DEFAULT_PE_SIZE_MIB,
+          seqno: sanoEntero(v.seqno, 1, 1e6, 1),
+          status: ['RESIZEABLE', 'READ', 'WRITE'],
+        };
+      }
+
+      function sanearPvs(lista, discosPorDevice, vgNames) {
+        const vistos = new Set();
+        const out = [];
+        for (const p of Array.isArray(lista) ? lista : []) {
+          if (!esObjeto(p) || !RE_DEVICE.test(p.device) || vistos.has(p.device)) continue;
+          const disco = discosPorDevice.get(p.device);
+          const maxMiB = disco ? disco.totalMiB : 1024 * 1024 * 64;
+          vistos.add(p.device);
+          out.push({
+            device: p.device,
+            uuid: sanoTexto(p.uuid, 48, generateLvmUuid()),
+            totalMiB: sanoEntero(p.totalMiB, PV_MDA_HEADER_MIB + 1, maxMiB, maxMiB),
+            mdaMiB: PV_MDA_HEADER_MIB,
+            vgName: typeof p.vgName === 'string' && vgNames.has(p.vgName) ? p.vgName : null,
+          });
+        }
+        return out;
+      }
+
+      function sanearLvs(lista, vgNames, pvDevices) {
+        const vistos = new Set();
+        const out = [];
+        const fuente = Array.isArray(lista) ? lista : [];
+        for (const l of fuente) {
+          if (!esObjeto(l) || !RE_NOMBRE_LVM.test(l.name) || !vgNames.has(l.vgName)) continue;
+          const clave = `${l.vgName}/${l.name}`;
+          if (vistos.has(clave)) continue;
+          const segments = (Array.isArray(l.segments) ? l.segments : [])
+            .filter((sg) => esObjeto(sg) && pvDevices.has(sg.pv))
+            .map((sg) => ({
+              pv: sg.pv,
+              start_pe: sanoEntero(sg.start_pe, 0, 1e8, 0),
+              length_pe: sanoEntero(sg.length_pe, 1, 1e8, 1),
+            }));
+          if (segments.length === 0) continue;
+          const sizePE = segments.reduce((acc, sg) => acc + sg.length_pe, 0);
+          const fsType = ['raw', 'ext4', 'xfs', 'swap'].includes(l.fsType) ? l.fsType : 'raw';
+          const mountPoint =
+            fsType === 'swap' && l.mountPoint === '[SWAP]' ? '[SWAP]' : typeof l.mountPoint === 'string' && RE_MOUNT.test(l.mountPoint) ? l.mountPoint : '';
+          const isSnapshot = Boolean(l.isSnapshot);
+          vistos.add(clave);
+          out.push({
+            id: typeof l.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(l.id) ? l.id : `lv-${l.vgName}-${l.name}`,
+            name: l.name,
+            vgName: l.vgName,
+            uuid: sanoTexto(l.uuid, 48, generateLvmUuid()),
+            sizePE,
+            segments,
+            fsSizePE: fsType === 'raw' ? 0 : sanoEntero(l.fsSizePE, 0, sizePE, sizePE),
+            fsType,
+            fsUuid: sanoTexto(l.fsUuid, 48, ''),
+            mounted: Boolean(l.mounted) && fsType !== 'raw' && mountPoint !== '',
+            mountPoint,
+            usagePct: sanoNumero(l.usagePct, 0, 100, 0),
+            inFstab: typeof l.inFstab === 'boolean' ? l.inFstab : Boolean(l.mounted),
+            lastMountPoint: typeof l.lastMountPoint === 'string' && RE_MOUNT.test(l.lastMountPoint) ? l.lastMountPoint : mountPoint === '[SWAP]' ? '' : mountPoint,
+            fsckVerified: Boolean(l.fsckVerified),
+            corrupted: Boolean(l.corrupted),
+            disasterState: l.disasterState ? sanoTexto(l.disasterState, 160, 'Estado dañado') : null,
+            active: l.active !== false,
+            isSnapshot,
+            originLv: isSnapshot && RE_NOMBRE_LVM.test(l.originLv) ? l.originLv : null,
+            cowDataPct: isSnapshot ? sanoNumero(l.cowDataPct, 0, 100, 0.01) : 0,
+            invalidated: Boolean(l.invalidated),
+            pendingMerge: Boolean(l.pendingMerge),
+          });
+        }
+        // Un snapshot sin su origen en el mismo VG no tiene sentido: se descarta
+        return out.filter((l) => !l.isSnapshot || out.some((o) => !o.isSnapshot && o.vgName === l.vgName && o.name === l.originLv));
+      }
+
+      function sanearEstadoLvm(parsed) {
+        if (!esObjeto(parsed) || !Array.isArray(parsed.disks) || !Array.isArray(parsed.pvs) || !Array.isArray(parsed.vgs) || !Array.isArray(parsed.lvs)) {
+          return null;
+        }
+        const disks = [];
+        const discosPorDevice = new Map();
+        for (const d of parsed.disks.slice(0, 32)) {
+          if (!esObjeto(d) || !RE_DEVICE.test(d.device) || discosPorDevice.has(d.device)) continue;
+          const sizeGiB = sanoEntero(d.sizeGiB, 1, 65536, 20);
+          const disco = {
+            id: `disk-${d.device.slice(5)}`,
+            device: d.device,
+            sizeGiB,
+            totalMiB: sanoEntero(d.totalMiB, 1024, sizeGiB * 1024, sizeGiB * 1024),
+            type: ['SSD', 'NVMe', 'HDD'].includes(d.type) ? d.type : 'SSD',
+            model: sanoTexto(d.model, 40, 'VIRTUAL_DISK'),
+            locked: Boolean(d.locked),
+            smartWarning: Boolean(d.smartWarning),
+            role: sanoTexto(d.role, 80, 'Disco'),
+          };
+          disks.push(disco);
+          discosPorDevice.set(disco.device, disco);
+        }
+        const vgs = [];
+        for (const v of parsed.vgs.slice(0, 32)) {
+          const vg = sanearVg(v);
+          if (vg && !vgs.some((x) => x.name === vg.name)) vgs.push(vg);
+        }
+        const vgNames = new Set(vgs.map((v) => v.name));
+        const pvs = sanearPvs(parsed.pvs, discosPorDevice, vgNames).filter((p) => discosPorDevice.has(p.device));
+        const pvDevices = new Set(pvs.map((p) => p.device));
+        const lvs = sanearLvs(parsed.lvs.slice(0, 256), vgNames, pvDevices);
+
+        const archives = [];
+        for (const a of (Array.isArray(parsed.archives) ? parsed.archives : []).slice(-50)) {
+          if (!esObjeto(a) || !RE_NOMBRE_LVM.test(a.vgName) || !RE_FICHERO_VG.test(a.fileName) || !esObjeto(a.snapshotState)) continue;
+          const vg = sanearVg(a.snapshotState.vg);
+          if (!vg || vg.name !== a.vgName) continue;
+          const nombres = new Set([vg.name]);
+          const snapPvs = sanearPvs(a.snapshotState.pvs, discosPorDevice, nombres);
+          const snapLvs = sanearLvs(a.snapshotState.lvs, nombres, new Set(snapPvs.map((p) => p.device)));
+          archives.push({
+            id: sanoTexto(a.id, 96, `arch-${a.vgName}-${archives.length}`),
+            vgName: a.vgName,
+            seqno: vg.seqno,
+            fileName: a.fileName,
+            path: `/etc/lvm/archive/${a.fileName}`,
+            reason: sanoTexto(a.reason, 160, 'VG metadata change'),
+            timestamp: typeof a.timestamp === 'string' && !Number.isNaN(Date.parse(a.timestamp)) ? new Date(a.timestamp).toISOString() : new Date().toISOString(),
+            text: sanoTexto(a.text, 40000, ''),
+            snapshotState: { vg, pvs: snapPvs, lvs: snapLvs },
+          });
+        }
+        const daemons = esObjeto(parsed.daemons) ? parsed.daemons : {};
+        return {
+          daemons: { lvmetad: daemons.lvmetad !== false, dmeventd: daemons.dmeventd !== false },
+          disks,
+          pvs,
+          vgs,
+          lvs,
+          archives,
+        };
+      }
+
       const CTF_MISSIONS = [
         {
           id: 'ctf_1',
@@ -769,6 +926,9 @@
           this.sessionCommandLog = [];
           this.activeMigration = null;
           this.listeners = new Set();
+          // Mientras arranca no se guarda nada: si no, el escenario por defecto sobrescribía
+          // el trabajo guardado antes de que restoreWorkspaceFromStorage llegara a leerlo.
+          this.arrancando = true;
           this.loadScenario('default');
         }
 
@@ -816,7 +976,16 @@
           if (!raw) return {};
           try {
             const parsed = JSON.parse(raw);
-            return parsed && typeof parsed === 'object' ? parsed : {};
+            const limpio = {};
+            if (esObjeto(parsed)) {
+              for (const m of CTF_MISSIONS) {
+                const e = parsed[m.id];
+                if (!esObjeto(e)) continue;
+                const fecha = typeof e.solvedAt === 'string' && !Number.isNaN(Date.parse(e.solvedAt)) ? new Date(e.solvedAt).toISOString() : new Date().toISOString();
+                limpio[m.id] = { flag: m.flag, points: m.points, title: m.title, solvedAt: fecha };
+              }
+            }
+            return limpio;
           } catch {
             return {};
           }
@@ -827,14 +996,18 @@
         }
 
         saveWorkspaceToStorage() {
-          if (this.activeMission) return;
+          if (this.activeMission || this.arrancando) return;
           safeWriteStorage(STORAGE_KEYS.workspace, this.exportJSON());
         }
 
         restoreWorkspaceFromStorage() {
+          this.arrancando = false;
           const raw = safeReadStorage(STORAGE_KEYS.workspace);
           if (!raw) return false;
           const res = this.importJSON(raw, { silentLog: true });
+          if (res.ok) {
+            this.logCommand('lvm-restore-state', 'Sesión anterior restaurada desde el navegador. «Reiniciar» vuelve al escenario inicial.', true);
+          }
           return res.ok;
         }
 
@@ -3486,6 +3659,13 @@
             );
           }
 
+          // Los LV con datos de producción deben ser los mismos al terminar: borrarlos y crearlos
+          // vacíos con el mismo nombre no cuenta como rescate (cambia el UUID y se pierden los datos).
+          this.missionFlags.originalLvUuids = {};
+          this.lvs.forEach((l) => {
+            if (!l.isSnapshot) this.missionFlags.originalLvUuids[`${l.vgName}/${l.name}`] = l.uuid;
+          });
+
           this.kernelLogs = [];
           this.addKernelLog('Linux version 6.8.0-lvmlab (GhostAcademy) #1 SMP PREEMPT_DYNAMIC');
           this.addKernelLog('device-mapper: ioctl: 4.48.0-ioctl initialised: dm-devel@redhat.com');
@@ -3541,6 +3721,19 @@
 
           let steps = [];
           let failedNote = null;
+          const uuids = this.missionFlags.originalLvUuids || {};
+          // Devuelve el LV si es el original; si se borró y se recreó vacío, deja una nota y devuelve null
+          const original = (vgName, lvName, motivo) => {
+            const lv = this.lvs.find((l) => l.vgName === vgName && l.name === lvName && !l.isSnapshot);
+            const esperado = uuids[`${vgName}/${lvName}`];
+            if (lv && esperado && lv.uuid !== esperado) {
+              failedNote =
+                failedNote ||
+                `${lvName} ya no es el volumen original: lo borraste y creaste otro vacío con el mismo nombre (UUID distinto), así que ${motivo} se han perdido. Reinicia la misión y resuélvela sin destruir los datos.`;
+              return null;
+            }
+            return lv;
+          };
 
           if (m.id === 'ctf_1') {
             const pvB = this.getPV('/dev/sdb');
@@ -3557,7 +3750,7 @@
           } else if (m.id === 'ctf_2') {
             const pvD = this.getPV('/dev/sdd');
             const vg = this.getVG('vg_db');
-            const lv = this.lvs.find((l) => l.vgName === 'vg_db' && l.name === 'lv_mysql' && !l.isSnapshot);
+            const lv = original('vg_db', 'lv_mysql', 'las tablas de MySQL');
             const vgSt = vg ? this.getVGStats('vg_db') : null;
             const minTargetPE = (this.missionFlags.ctf2InitialSizePE || 7679) + Math.round((25 * 1024) / 4);
             const fsPE = lv ? this.getLvFsSizePE(lv) : 0;
@@ -3571,7 +3764,7 @@
               { label: '/var/lib/mysql montado y sin interrupción de servicio', done: Boolean(lv && lv.mounted && lv.mountPoint === '/var/lib/mysql' && stayedOnline) },
             ];
           } else if (m.id === 'ctf_3') {
-            const lv = this.lvs.find((l) => l.vgName === 'vg_erp' && l.name === 'lv_erp' && !l.isSnapshot);
+            const lv = original('vg_erp', 'lv_erp', 'los datos del ERP');
             const snapExists = this.lvs.some((l) => l.vgName === 'vg_erp' && l.name === 'snap_pre_update');
             steps = [
               { label: 'Snapshot snap_pre_update (>= 5 GiB) creado sobre lv_erp', done: Boolean(this.missionFlags.ctf3SnapCreated) },
@@ -3582,8 +3775,8 @@
             const pvNvme = this.getPV('/dev/nvme0n1');
             const pvSdb = this.getPV('/dev/sdb');
             const sdbSegs = this.lvs.flatMap((l) => l.segments).filter((s) => s.pv === '/dev/sdb').length;
-            const lvWeb = this.lvs.find((l) => l.vgName === 'vg_prod' && l.name === 'lv_web');
-            const lvMail = this.lvs.find((l) => l.vgName === 'vg_prod' && l.name === 'lv_correo');
+            const lvWeb = original('vg_prod', 'lv_web', 'la web y el correo');
+            const lvMail = original('vg_prod', 'lv_correo', 'la web y el correo');
             const bothOnNvme = Boolean(
               lvWeb && lvMail &&
               lvWeb.segments.every((s) => s.pv === '/dev/nvme0n1') &&
@@ -3721,39 +3914,47 @@
         }
 
         importJSON(raw, opts = {}) {
+          let parsed;
           try {
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed.disks) || !Array.isArray(parsed.pvs) || !Array.isArray(parsed.vgs) || !Array.isArray(parsed.lvs)) {
-              return { ok: false, message: 'Estructura JSON incompatible con LVMLab.' };
-            }
+            parsed = JSON.parse(raw);
+          } catch (err) {
+            return { ok: false, message: `Error al parsear JSON: ${err.message}` };
+          }
+          const limpio = sanearEstadoLvm(parsed);
+          if (!limpio) {
+            return { ok: false, message: 'Estructura JSON incompatible con LVMLab.' };
+          }
+          const anterior = this.exportJSON();
+          const anteriorEscenario = this.activeScenario;
+          try {
             this.clearActiveMigration();
             this.activeMission = null;
             this.missionFlags = {};
-            this.daemons = parsed.daemons || { lvmetad: true, dmeventd: true };
-            this.disks = parsed.disks;
-            this.pvs = parsed.pvs;
-            this.vgs = parsed.vgs;
-            this.archives = Array.isArray(parsed.archives) ? parsed.archives : [];
-            this.lvs = parsed.lvs.map((l) => ({
-              ...l,
-              fsSizePE: l.fsType === 'raw' ? 0 : typeof l.fsSizePE === 'number' ? l.fsSizePE : l.sizePE,
-              inFstab: typeof l.inFstab === 'boolean' ? l.inFstab : Boolean(l.mounted),
-              lastMountPoint: l.lastMountPoint || (l.mounted ? l.mountPoint : ''),
-              fsckVerified: Boolean(l.fsckVerified),
-              corrupted: Boolean(l.corrupted),
-              disasterState: l.disasterState || null,
-              active: l.active !== false,
-              cowDataPct: l.isSnapshot ? (typeof l.cowDataPct === 'number' ? l.cowDataPct : 0.01) : 0,
-              invalidated: Boolean(l.invalidated),
-              pendingMerge: Boolean(l.pendingMerge),
-            }));
+            this.daemons = limpio.daemons;
+            this.disks = limpio.disks;
+            this.pvs = limpio.pvs;
+            this.vgs = limpio.vgs;
+            this.archives = limpio.archives;
+            this.lvs = limpio.lvs;
+            const total = (k) => (Array.isArray(parsed[k]) ? parsed[k].length : 0);
+            const descartados =
+              ['disks', 'pvs', 'vgs', 'lvs'].reduce((acc, k) => acc + total(k) - limpio[k].length, 0);
+            const aviso =
+              descartados > 0
+                ? `Estado JSON importado; se descartaron ${descartados} elemento(s) no válidos (dispositivos, nombres o segmentos incoherentes).`
+                : 'Estado JSON importado con éxito.';
             if (!opts.silentLog) {
-              this.logCommand('lvm-import-state', 'Estado LVM2 importado desde JSON correctamente.', true);
+              this.logCommand('lvm-import-state', aviso, true);
             }
             this.notify();
-            return { ok: true, message: 'Estado JSON importado con éxito.' };
+            return { ok: true, message: aviso };
           } catch (err) {
-            return { ok: false, message: `Error al parsear JSON: ${err.message}` };
+            // Si el estado no se puede pintar, se vuelve al que había (nunca a una página en blanco)
+            const previo = sanearEstadoLvm(JSON.parse(anterior));
+            Object.assign(this, { daemons: previo.daemons, disks: previo.disks, pvs: previo.pvs, vgs: previo.vgs, lvs: previo.lvs, archives: previo.archives });
+            this.activeScenario = anteriorEscenario;
+            this.notify();
+            return { ok: false, message: `El estado importado no es coherente y se ha descartado (${err.message}).` };
           }
         }
       }
@@ -5240,7 +5441,7 @@
         const g = lvm.getGlobalStats();
         const container = document.getElementById('global-metrics');
         container.innerHTML = `
-          <div class="flex items-center gap-4 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg">
             <div class="flex items-center gap-1.5 whitespace-nowrap">
               <span class="text-slate-400">Raw Disk:</span>
               <span class="font-mono font-semibold text-cyan-400 tabular-nums">${g.totalRawGiB.toFixed(0)} GiB</span>
@@ -7625,13 +7826,13 @@
         const viewExt = document.getElementById('view-extents');
 
         if (tab === 'diagram') {
-          btnDiag.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 bg-slate-800 text-slate-50';
-          btnExt.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 text-slate-400 hover:text-slate-200';
+          btnDiag.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors sm:whitespace-nowrap shrink sm:shrink-0 bg-slate-800 text-slate-50';
+          btnExt.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors sm:whitespace-nowrap shrink sm:shrink-0 text-slate-400 hover:text-slate-200';
           viewDiag.classList.remove('hidden');
           viewExt.classList.add('hidden');
         } else {
-          btnExt.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 bg-slate-800 text-slate-50';
-          btnDiag.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 text-slate-400 hover:text-slate-200';
+          btnExt.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors sm:whitespace-nowrap shrink sm:shrink-0 bg-slate-800 text-slate-50';
+          btnDiag.className = 'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors sm:whitespace-nowrap shrink sm:shrink-0 text-slate-400 hover:text-slate-200';
           viewExt.classList.remove('hidden');
           viewDiag.classList.add('hidden');
         }
