@@ -1,0 +1,6 @@
+{
+  "name": "LVMLab — GhostAcademy",
+  "description": "Simulador web interactivo y educativo de Logical Volume Manager (LVM2) en Linux con diagrama multicapa, mapa físico de extents (PE Grid), inspector /etc/lvm/backup y consola Bash.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
